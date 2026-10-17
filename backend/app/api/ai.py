@@ -85,6 +85,32 @@ async def _attachments(files: list[UploadFile]) -> tuple[list[dict[str, Any]], l
             except Exception:
                 text = "PDF text extraction was unavailable; use the filename and command as planning context."
             text_context.append({"name": name, "text": text[:50000]})
+        elif name.lower().endswith(".docx"):
+            try:
+                from docx import Document
+                from io import BytesIO
+                text = "\n".join(paragraph.text for paragraph in Document(BytesIO(data)).paragraphs)
+            except Exception:
+                text = "DOCX text extraction was unavailable; infer only from the filename and user command."
+            text_context.append({"name": name, "text": text[:50000]})
+        elif name.lower().endswith(".xlsx"):
+            try:
+                from openpyxl import load_workbook
+                from io import BytesIO
+                workbook = load_workbook(BytesIO(data), read_only=True, data_only=True)
+                text = "\n".join(f"{sheet.title}: " + " | ".join(str(cell.value or "") for row in sheet.iter_rows() for cell in row) for sheet in workbook.worksheets)
+            except Exception:
+                text = "XLSX text extraction was unavailable; infer only from the filename and user command."
+            text_context.append({"name": name, "text": text[:50000]})
+        elif name.lower().endswith(".pptx"):
+            try:
+                from pptx import Presentation
+                from io import BytesIO
+                presentation = Presentation(BytesIO(data))
+                text = "\n".join(shape.text for slide in presentation.slides for shape in slide.shapes if hasattr(shape, "text"))
+            except Exception:
+                text = "PPTX text extraction was unavailable; infer only from the filename and user command."
+            text_context.append({"name": name, "text": text[:50000]})
         else:
             try:
                 text_context.append({"name": name, "text": data.decode("utf-8", errors="replace")[:50000]})

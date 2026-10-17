@@ -7,7 +7,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Path as PathParam
+import base64
+from fastapi import APIRouter, File, Form, Header, HTTPException, Path as PathParam, UploadFile
 
 from app.db.database import get_db_connection
 from app.schemas.ai import AIOperationsRequest, AIPreviewResponse, AIApplyResponse, AICommandRequest, AIOperation
@@ -21,10 +22,10 @@ ALLOWED_CATEGORY = {"venue", "speakers", "marketing", "operations", "budget"}
 ALLOWED_CHANGES = {"title", "description", "status", "priority", "category", "owner", "eta", "source_refs", "subtasks_completed", "subtasks_total"}
 
 
-def _mission_context(mission_id: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+def _mission_context(mission_id: str, workspace_user: str = "anonymous") -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
     conn = get_db_connection()
     try:
-        mission = conn.execute("SELECT id, goal, brief FROM missions WHERE id = ?", (mission_id,)).fetchone()
+        mission = conn.execute("SELECT id, goal, brief FROM missions WHERE id = ? AND owner_id = ?", (mission_id, workspace_user.strip()[:180] or "anonymous")).fetchone()
         if not mission:
             raise HTTPException(status_code=404, detail=f"Mission '{mission_id}' not found.")
         tasks = [dict(row) for row in conn.execute("SELECT id, title, status, priority, category, owner, position_x, position_y FROM tasks WHERE mission_id = ?", (mission_id,)).fetchall()]
@@ -54,10 +55,50 @@ def _response(operations: list[dict[str, Any]], rationale: str, model: str, miss
 
 
 @router.post("/preview", response_model=AIPreviewResponse)
-def preview_command(payload: AICommandRequest, mission_id: str = PathParam(...)):
-    mission, tasks, edges = _mission_context(mission_id)
+def preview_command(payload: AICommandRequest, mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
+    mission, tasks, edges = _mission_context(mission_id, x_workspace_user)
     try:
         result = propose_operations(goal=mission["goal"], brief=mission.get("brief"), tasks=tasks, edges=edges, command=payload.command)
+    except AIPlannerError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return _response(result["operations"], result["rationale"], result["model"], mission_id)
+
+
+async def _attachments(files: list[UploadFile]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if len(files) > 8:
+        raise HTTPException(status_code=413, detail="Upload up to 8 files at a time.")
+    text_context: list[dict[str, Any]] = []
+    image_parts: list[dict[str, Any]] = []
+    for file in files:
+        data = await file.read()
+        if len(data) > 12 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail=f"{file.filename or 'File'} is larger than 12MB.")
+        mime = file.content_type or "application/octet-stream"
+        name = file.filename or "uploaded file"
+        if mime.startswith("image/"):
+            image_parts.append({"inline_data": {"mime_type": mime, "data": base64.b64encode(data).decode("ascii")}})
+        elif mime == "application/pdf" or name.lower().endswith(".pdf"):
+            try:
+                from pypdf import PdfReader
+                from io import BytesIO
+                text = "\n".join(page.extract_text() or "" for page in PdfReader(BytesIO(data)).pages)
+            except Exception:
+                text = "PDF text extraction was unavailable; use the filename and command as planning context."
+            text_context.append({"name": name, "text": text[:50000]})
+        else:
+            try:
+                text_context.append({"name": name, "text": data.decode("utf-8", errors="replace")[:50000]})
+            except Exception:
+                text_context.append({"name": name, "text": "Binary document attached; infer only from its filename and user command."})
+    return text_context, image_parts
+
+
+@router.post("/preview-with-files", response_model=AIPreviewResponse)
+async def preview_command_with_files(command: str = Form(...), files: list[UploadFile] = File(default=[]), mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
+    mission, tasks, edges = _mission_context(mission_id, x_workspace_user)
+    attachment_context, image_parts = await _attachments(files)
+    try:
+        result = propose_operations(goal=mission["goal"], brief=mission.get("brief"), tasks=tasks, edges=edges, command=command, attachments=attachment_context, image_parts=image_parts)
     except AIPlannerError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return _response(result["operations"], result["rationale"], result["model"], mission_id)
@@ -168,6 +209,7 @@ def _validate_and_apply(mission_id: str, operations: list[AIOperation]) -> list[
 
 
 @router.post("/apply", response_model=AIApplyResponse)
-def apply_operations(payload: AIOperationsRequest, mission_id: str = PathParam(...)):
+def apply_operations(payload: AIOperationsRequest, mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
+    _mission_context(mission_id, x_workspace_user)
     normalized = _validate_and_apply(mission_id, payload.operations)
     return _response(normalized, "Applied after explicit operator approval.", "operator-approved", mission_id, applied=True)

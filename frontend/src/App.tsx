@@ -16,7 +16,7 @@ import { TaskModal } from './components/TaskModal';
 import { LoginPage } from './components/LoginPage';
 import { AICommandPanel } from './components/AICommandPanel';
 import { CursorFollower } from './components/CursorFollower';
-import { api, type HealthCheckResult } from './api/client';
+import { api, type AuditEvent, type HealthCheckResult } from './api/client';
 import type {
   MissionSummary,
   MissionDetail,
@@ -56,6 +56,7 @@ export function App() {
   const [aiApplyResult, setAIApplyResult] = useState<AIApplyResponse | null>(null);
   const [aiLoading, setAILoading] = useState(false);
   const [aiError, setAIError] = useState<string | null>(null);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
 
   // React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -195,6 +196,11 @@ export function App() {
     };
   }, [activeMissionId, syncGraphToCanvas]);
 
+  useEffect(() => {
+    if (isLoginView || activeTab !== 'audit') return;
+    void api.listAuditEvents().then(setAuditEvents).catch((err) => setErrorBanner(err instanceof Error ? err.message : 'Failed to load audit log.'));
+  }, [activeTab, isLoginView]);
+
   // Node Click handler
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -220,6 +226,7 @@ export function App() {
       }).catch((err) => {
         console.error('Failed to persist node position:', err);
       });
+      void api.recordAudit('workflow', 'Moved task on canvas', { mission_id: activeMissionId, task_id: node.id });
     },
     [activeMissionId]
   );
@@ -231,6 +238,7 @@ export function App() {
       try {
         setErrorBanner(null);
         await api.createEdge(activeMissionId, connection.source, connection.target);
+        void api.recordAudit('workflow', 'Connected dependency', { mission_id: activeMissionId, source: connection.source, target: connection.target });
         await loadActiveMission(activeMissionId);
       } catch (err) {
         setErrorBanner(err instanceof Error ? err.message : 'Failed to connect tasks.');
@@ -255,6 +263,7 @@ export function App() {
       try {
         setErrorBanner(null);
         await api.deleteEdge(activeMissionId, edge.id);
+        void api.recordAudit('workflow', 'Removed dependency', { mission_id: activeMissionId, edge_id: edge.id });
         setSelectedEdgeId(null);
         await loadActiveMission(activeMissionId);
       } catch (err) {
@@ -268,6 +277,7 @@ export function App() {
   const handleCreateMission = useCallback(
     async (payload: CreateMissionPayload) => {
       const newMission = await api.createMission(payload);
+      void api.recordAudit('workflow', 'Created mission', { mission_id: newMission.id, goal: payload.goal });
       await loadMissions(newMission.id);
     },
     [loadMissions]
@@ -280,6 +290,7 @@ export function App() {
       if (taskToEdit) {
         // Edit existing
         await api.updateTask(activeMissionId, taskToEdit.id, payload as UpdateTaskPayload);
+        void api.recordAudit('workflow', 'Updated task', { mission_id: activeMissionId, task_id: taskToEdit.id });
       } else {
         // Add new
         // Calculate a reasonable position on canvas
@@ -294,6 +305,7 @@ export function App() {
           ...(payload as CreateTaskPayload),
           position,
         });
+        void api.recordAudit('workflow', 'Created task', { mission_id: activeMissionId, title: (payload as CreateTaskPayload).title });
       }
       await loadActiveMission(activeMissionId);
       await loadMissions();
@@ -308,6 +320,7 @@ export function App() {
       try {
         setErrorBanner(null);
         await api.deleteTask(activeMissionId, taskId);
+        void api.recordAudit('workflow', 'Deleted task', { mission_id: activeMissionId, task_id: taskId });
         setSelectedTask(null);
         await loadActiveMission(activeMissionId);
         await loadMissions();
@@ -325,6 +338,7 @@ export function App() {
       try {
         setErrorBanner(null);
         await api.updateTask(activeMissionId, task.id, { status: newStatus });
+        void api.recordAudit('workflow', 'Changed task status', { mission_id: activeMissionId, task_id: task.id, status: newStatus });
         await loadActiveMission(activeMissionId);
       } catch (err) {
         setErrorBanner(err instanceof Error ? err.message : 'Failed to update status.');
@@ -346,13 +360,15 @@ export function App() {
     }
   }, [loadMissions]);
 
-  const handleAIPreview = useCallback(async (command: string) => {
+  const handleAIPreview = useCallback(async (command: string, files: File[] = []) => {
     if (!activeMissionId) return;
     setAILoading(true);
     setAIError(null);
     setAIApplyResult(null);
     try {
-      const preview = await api.previewAICommand(activeMissionId, command);
+      const preview = files.length > 0
+        ? await api.previewAICommandWithFiles(activeMissionId, command, files)
+        : await api.previewAICommand(activeMissionId, command);
       setAIPreview(preview);
     } catch (err) {
       setAIError(err instanceof Error ? err.message : 'Gemini could not prepare a safe graph change.');
@@ -371,6 +387,7 @@ export function App() {
       setAIPreview(null);
       await loadActiveMission(activeMissionId);
       await loadMissions();
+      void api.recordAudit('ai', 'Applied Gemini workflow changes', { mission_id: activeMissionId, operation_count: result.operations.length });
     } catch (err) {
       setAIError(err instanceof Error ? err.message : 'The proposed changes were not saved.');
     } finally {
@@ -389,6 +406,7 @@ export function App() {
   }, []);
 
   const openLogin = useCallback(() => {
+    void api.recordAudit('auth', 'Logged out');
     window.sessionStorage.removeItem('missioncontrol.session');
     window.history.pushState({}, '', '/login');
     setIsLoginView(true);
@@ -396,6 +414,7 @@ export function App() {
 
   const continueToWorkspace = useCallback((email: string, displayName: string) => {
     window.sessionStorage.setItem('missioncontrol.session', JSON.stringify({ email, displayName }));
+    void api.recordAudit('auth', 'Logged in', { display_name: displayName });
     window.history.pushState({}, '', '/');
     setIsLoginView(false);
   }, []);
@@ -448,7 +467,9 @@ export function App() {
           {activeTab === 'canvas' && (
             <div className="ops-canvas-layout">
               <div className="ops-canvas-pane">
-                {loadingMission && nodes.length === 0 ? (
+                {!activeMission ? (
+                  <div className="ops-no-mission-state"><div><span className="ops-kicker">New workspace</span><h2>Your first mission starts here.</h2><p>There is no shared sample plan in this workspace. Create a mission from your own event brief to begin building the graph.</p><button type="button" className="ops-btn-primary" onClick={() => setIsCreateMissionOpen(true)}>Create first mission</button></div></div>
+                ) : loadingMission && nodes.length === 0 ? (
                   <div className="ops-loading-state">
                     <span className="ops-spin" />
                     <span>Loading Task Graph from SQLite...</span>
@@ -614,6 +635,19 @@ export function App() {
                     </div>
                     <code className="ops-code-pill">SQLite (WAL mode enabled)</code>
                   </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'audit' && (
+            <div className="ops-placeholder-panel">
+              <div className="ops-panel-card ops-audit-panel">
+                <div className="ops-panel-card-header"><div><span className="ops-kicker">Workspace history</span><h2 className="ops-panel-title">Audit log</h2></div><span className="ops-badge-subtle">Latest 100 events</span></div>
+                <p className="ops-panel-desc">Authentication and workflow actions recorded with the acting workspace identity and UTC timestamp.</p>
+                <div className="ops-audit-list">
+                  {auditEvents.length === 0 && <div className="ops-empty-state">No audit events recorded for this workspace yet.</div>}
+                  {auditEvents.map((event) => <div className="ops-audit-row" key={event.id}><div className="ops-audit-main"><strong>{event.action}</strong><span>{event.workspace_user}</span></div><div className="ops-audit-meta"><span>{event.event_type}</span><time dateTime={event.created_at}>{new Date(event.created_at).toLocaleString()}</time></div></div>)}
                 </div>
               </div>
             </div>

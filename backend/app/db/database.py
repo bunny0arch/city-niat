@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 from datetime import datetime, timezone
@@ -31,6 +32,7 @@ def init_db() -> None:
                     id TEXT PRIMARY KEY,
                     goal TEXT NOT NULL,
                     brief TEXT,
+                    owner_id TEXT NOT NULL DEFAULT 'system',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
@@ -69,20 +71,40 @@ def init_db() -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_tasks_mission ON tasks(mission_id);
                 CREATE INDEX IF NOT EXISTS idx_dependencies_mission ON dependencies(mission_id);
+                CREATE TABLE IF NOT EXISTS audit_log (
+                    id TEXT PRIMARY KEY,
+                    workspace_user TEXT NOT NULL,
+                    event_type TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    details TEXT,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
                 """
             )
 
-        # Seed initial sample mission if none exists
-        cursor = conn.cursor()
-        cursor.execute("SELECT COUNT(*) as count FROM missions")
-        count = cursor.fetchone()["count"]
-        if count == 0:
-            seed_sample_mission(conn)
+            columns = {row["name"] for row in conn.execute("PRAGMA table_info(missions)").fetchall()}
+            if "owner_id" not in columns:
+                conn.execute("ALTER TABLE missions ADD COLUMN owner_id TEXT NOT NULL DEFAULT 'system'")
+
     finally:
         conn.close()
 
 
-def seed_sample_mission(conn: sqlite3.Connection) -> str:
+def record_audit(workspace_user: str, event_type: str, action: str, details: dict[str, Any] | None = None) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    conn = get_db_connection()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT INTO audit_log (id, workspace_user, event_type, action, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (f"audit-{uuid.uuid4().hex[:12]}", workspace_user, event_type, action, json.dumps(details or {}), now),
+            )
+    finally:
+        conn.close()
+
+
+def seed_sample_mission(conn: sqlite3.Connection, owner_id: str = "system") -> str:
     """Seed a realistic demonstrable event mission with a validated DAG."""
     now = datetime.now(timezone.utc).isoformat()
     mission_id = "mission-techsummit-2026"
@@ -92,10 +114,10 @@ def seed_sample_mission(conn: sqlite3.Connection) -> str:
     with conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO missions (id, goal, brief, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO missions (id, goal, brief, owner_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (mission_id, goal, brief, now, now),
+            (mission_id, goal, brief, owner_id, now, now),
         )
 
         sample_tasks = [

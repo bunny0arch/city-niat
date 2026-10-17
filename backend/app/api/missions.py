@@ -4,9 +4,9 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import List, Dict
-from fastapi import APIRouter, HTTPException, Path as PathParam, status
+from fastapi import APIRouter, Header, HTTPException, Path as PathParam, status
 
-from app.db.database import get_db_connection, seed_sample_mission
+from app.db.database import get_db_connection, record_audit, seed_sample_mission
 from app.schemas.mission import (
     MissionSummary,
     MissionDetail,
@@ -29,8 +29,19 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _user(value: str) -> str:
+    return value.strip()[:180] or "anonymous"
+
+
+def _assert_owned(conn, mission_id: str, workspace_user: str):
+    row = conn.execute("SELECT * FROM missions WHERE id = ? AND owner_id = ?", (mission_id, _user(workspace_user))).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Mission '{mission_id}' not found.")
+    return row
+
+
 @router.get("", response_model=List[MissionSummary], summary="List all missions")
-def list_missions():
+def list_missions(x_workspace_user: str = Header("anonymous")):
     """Retrieve all event planning missions."""
     conn = get_db_connection()
     try:
@@ -41,9 +52,10 @@ def list_missions():
                    COUNT(t.id) as task_count
             FROM missions m
             LEFT JOIN tasks t ON m.id = t.mission_id
+            WHERE m.owner_id = ?
             GROUP BY m.id
             ORDER BY m.created_at DESC
-            """
+            """, (_user(x_workspace_user),)
         )
         rows = cursor.fetchall()
         return [
@@ -62,7 +74,7 @@ def list_missions():
 
 
 @router.post("", response_model=MissionDetail, status_code=status.HTTP_201_CREATED, summary="Create a new mission")
-def create_mission(payload: CreateMissionRequest):
+def create_mission(payload: CreateMissionRequest, x_workspace_user: str = Header("anonymous")):
     """Create a new mission from an event goal and brief."""
     conn = get_db_connection()
     now_ts = _now()
@@ -72,26 +84,24 @@ def create_mission(payload: CreateMissionRequest):
         with conn:
             conn.execute(
                 """
-                INSERT INTO missions (id, goal, brief, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO missions (id, goal, brief, owner_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (mission_id, payload.goal, payload.brief, now_ts, now_ts),
+                (mission_id, payload.goal, payload.brief, _user(x_workspace_user), now_ts, now_ts),
             )
-        return get_mission(mission_id)
+        record_audit(_user(x_workspace_user), "workflow", "Created mission", {"mission_id": mission_id, "goal": payload.goal})
+        return get_mission(mission_id, x_workspace_user)
     finally:
         conn.close()
 
 
 @router.get("/{mission_id}", response_model=MissionDetail, summary="Get full mission graph")
-def get_mission(mission_id: str = PathParam(..., description="Mission ID")):
+def get_mission(mission_id: str = PathParam(..., description="Mission ID"), x_workspace_user: str = Header("anonymous")):
     """Retrieve full mission with all tasks, positions, and dependency edges."""
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM missions WHERE id = ?", (mission_id,))
-        m_row = cursor.fetchone()
-        if not m_row:
-            raise HTTPException(status_code=404, detail=f"Mission '{mission_id}' not found.")
+        m_row = _assert_owned(conn, mission_id, x_workspace_user)
 
         # Fetch edges first to compute incoming dependencies per task
         cursor.execute(
@@ -156,16 +166,13 @@ def get_mission(mission_id: str = PathParam(..., description="Mission ID")):
 
 
 @router.put("/{mission_id}", response_model=MissionSummary, summary="Update mission metadata")
-def update_mission(payload: UpdateMissionRequest, mission_id: str = PathParam(...)):
+def update_mission(payload: UpdateMissionRequest, mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """Update goal and/or brief for a mission."""
     conn = get_db_connection()
     now_ts = _now()
     try:
+        existing = _assert_owned(conn, mission_id, x_workspace_user)
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM missions WHERE id = ?", (mission_id,))
-        existing = cursor.fetchone()
-        if not existing:
-            raise HTTPException(status_code=404, detail=f"Mission '{mission_id}' not found.")
 
         goal = payload.goal if payload.goal is not None else existing["goal"]
         brief = payload.brief if payload.brief is not None else existing["brief"]
@@ -192,10 +199,11 @@ def update_mission(payload: UpdateMissionRequest, mission_id: str = PathParam(..
 
 
 @router.delete("/{mission_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete mission")
-def delete_mission(mission_id: str = PathParam(...)):
+def delete_mission(mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """Delete a mission and all its cascading tasks and edges."""
     conn = get_db_connection()
     try:
+        _assert_owned(conn, mission_id, x_workspace_user)
         with conn:
             cursor = conn.execute("DELETE FROM missions WHERE id = ?", (mission_id,))
             if cursor.rowcount == 0:
@@ -205,7 +213,7 @@ def delete_mission(mission_id: str = PathParam(...)):
 
 
 @router.post("/{mission_id}/tasks", response_model=TaskNode, status_code=status.HTTP_201_CREATED, summary="Add task node")
-def add_task(payload: CreateTaskRequest, mission_id: str = PathParam(...)):
+def add_task(payload: CreateTaskRequest, mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """Create a task node in the mission graph."""
     conn = get_db_connection()
     now_ts = _now()
@@ -215,9 +223,7 @@ def add_task(payload: CreateTaskRequest, mission_id: str = PathParam(...)):
 
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT id FROM missions WHERE id = ?", (mission_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail=f"Mission '{mission_id}' not found.")
+        _assert_owned(conn, mission_id, x_workspace_user)
 
         # Ensure task_id unique
         cursor.execute("SELECT id FROM tasks WHERE id = ?", (task_id,))
@@ -282,11 +288,13 @@ def update_task(
     payload: UpdateTaskRequest,
     mission_id: str = PathParam(...),
     task_id: str = PathParam(...),
+    x_workspace_user: str = Header("anonymous"),
 ):
     """Update properties, status, or position of an individual task node."""
     conn = get_db_connection()
     now_ts = _now()
     try:
+        _assert_owned(conn, mission_id, x_workspace_user)
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM tasks WHERE id = ? AND mission_id = ?", (task_id, mission_id))
         existing = cursor.fetchone()
@@ -376,10 +384,11 @@ def update_task(
 
 
 @router.delete("/{mission_id}/tasks/{task_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete task node")
-def delete_task(mission_id: str = PathParam(...), task_id: str = PathParam(...)):
+def delete_task(mission_id: str = PathParam(...), task_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """Delete a task node and all its connected dependencies."""
     conn = get_db_connection()
     try:
+        _assert_owned(conn, mission_id, x_workspace_user)
         with conn:
             cursor = conn.execute("DELETE FROM tasks WHERE id = ? AND mission_id = ?", (task_id, mission_id))
             if cursor.rowcount == 0:
@@ -390,7 +399,7 @@ def delete_task(mission_id: str = PathParam(...), task_id: str = PathParam(...))
 
 
 @router.post("/{mission_id}/edges", response_model=DependencyEdge, status_code=status.HTTP_201_CREATED, summary="Add dependency edge")
-def add_edge(payload: CreateEdgeRequest, mission_id: str = PathParam(...)):
+def add_edge(payload: CreateEdgeRequest, mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """
     Connect a directed dependency edge from source (predecessor) to target (dependent).
     Validates node existence, rejects self-loops and directed cycles.
@@ -407,6 +416,7 @@ def add_edge(payload: CreateEdgeRequest, mission_id: str = PathParam(...)):
         )
 
     try:
+        _assert_owned(conn, mission_id, x_workspace_user)
         cursor = conn.cursor()
         # Verify both tasks exist in this mission
         cursor.execute("SELECT id FROM tasks WHERE id = ? AND mission_id = ?", (src, mission_id))
@@ -465,10 +475,11 @@ def add_edge(payload: CreateEdgeRequest, mission_id: str = PathParam(...)):
 
 
 @router.delete("/{mission_id}/edges/{edge_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete dependency edge")
-def delete_edge(mission_id: str = PathParam(...), edge_id: str = PathParam(...)):
+def delete_edge(mission_id: str = PathParam(...), edge_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """Remove a dependency edge."""
     conn = get_db_connection()
     try:
+        _assert_owned(conn, mission_id, x_workspace_user)
         with conn:
             cursor = conn.execute("DELETE FROM dependencies WHERE id = ? AND mission_id = ?", (edge_id, mission_id))
             if cursor.rowcount == 0:
@@ -479,11 +490,12 @@ def delete_edge(mission_id: str = PathParam(...), edge_id: str = PathParam(...))
 
 
 @router.put("/{mission_id}/positions", summary="Batch update node positions")
-def update_node_positions(payload: BatchUpdatePositionsRequest, mission_id: str = PathParam(...)):
+def update_node_positions(payload: BatchUpdatePositionsRequest, mission_id: str = PathParam(...), x_workspace_user: str = Header("anonymous")):
     """Persist multiple node position changes on canvas drag."""
     conn = get_db_connection()
     now_ts = _now()
     try:
+        _assert_owned(conn, mission_id, x_workspace_user)
         with conn:
             for task_id, pos in payload.positions.items():
                 conn.execute(
@@ -497,11 +509,11 @@ def update_node_positions(payload: BatchUpdatePositionsRequest, mission_id: str 
 
 
 @router.post("/reset-sample", summary="Reset sample demonstrable mission")
-def reset_sample():
+def reset_sample(x_workspace_user: str = Header("anonymous")):
     """Reset or recreate the standard sample event mission with all tasks and edges."""
     conn = get_db_connection()
     try:
-        mission_id = seed_sample_mission(conn)
+        mission_id = seed_sample_mission(conn, _user(x_workspace_user))
         return {"status": "ok", "mission_id": mission_id}
     finally:
         conn.close()

@@ -330,3 +330,24 @@ kbd { padding:2px 4px; border:1px solid #bec9d9; background:#fff; font:10px var(
   .ops-login-proof { margin-top:18px; gap:10px; font-size:10px; }
   .ops-login-form-pane { min-height:calc(100vh - 245px); padding:30px 22px; }
 }
+
+.ops-file-input { display:none; }
+.ops-ai-attach { display:grid; place-items:center; width:30px; height:30px; color:var(--text-muted); border:1px solid var(--border-crisp); border-radius:4px; }
+.ops-ai-attach:hover { color:var(--accent-blue); border-color:#9fb5d3; background:var(--accent-blue-soft); }
+.ops-ai-files { display:flex; flex-wrap:wrap; gap:5px; padding-top:7px; }
+.ops-ai-files span { display:inline-flex; align-items:center; gap:5px; max-width:170px; padding:4px 6px; border:1px solid #ccd3df; background:#f4f7fb; color:var(--text-dim); font:10px var(--font-mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.ops-ai-files button { display:grid; place-items:center; color:var(--text-muted); }
+.ops-ai-files button:hover { color:var(--accent-rose); }
+.ops-audit-panel { max-width:980px; }
+.ops-audit-list { margin-top:20px; border-top:1px solid var(--border-subtle); }
+.ops-audit-row { display:flex; align-items:center; justify-content:space-between; gap:18px; padding:13px 0; border-bottom:1px solid var(--border-subtle); }
+.ops-audit-main strong,.ops-audit-main span,.ops-audit-meta span,.ops-audit-meta time { display:block; }
+.ops-audit-main strong { font-size:12px; color:var(--text-main); }
+.ops-audit-main span { margin-top:4px; color:var(--text-muted); font:10px var(--font-mono); }
+.ops-audit-meta { text-align:right; }
+.ops-audit-meta span { color:var(--accent-blue); font:9px var(--font-mono); text-transform:uppercase; letter-spacing:.08em; }
+.ops-audit-meta time { margin-top:4px; color:var(--text-muted); font-size:10px; }
+.ops-empty-state { padding:35px 0; color:var(--text-muted); font-size:12px; }
+.ops-no-mission-state { display:grid; place-items:center; height:100%; min-height:360px; text-align:center; }
+.ops-no-mission-state h2 { margin-top:12px; font-size:18px; }
+.ops-no-mission-state p { max-width:360px; margin-top:7px; color:var(--text-muted); font-size:12px; line-height:1.55; }

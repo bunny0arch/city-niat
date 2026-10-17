@@ -7,12 +7,13 @@ from app.config import settings
 from app.api.health import router as health_router
 from app.api.missions import router as missions_router
 from app.api.ai import router as ai_router
+from app.api.audit import router as audit_router
 from app.db.database import init_db
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Initialize database and seed sample mission on startup."""
+    """Initialize database tables without seeding a shared sample mission."""
     init_db()
     yield
 
@@ -39,6 +40,7 @@ app.add_middleware(
 app.include_router(health_router, prefix="/api")
 app.include_router(missions_router, prefix="/api")
 app.include_router(ai_router, prefix="/api")
+app.include_router(audit_router, prefix="/api")
 
 
 @app.get("/", tags=["Root"])

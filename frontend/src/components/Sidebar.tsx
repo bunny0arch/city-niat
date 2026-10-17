@@ -1,5 +1,5 @@
 import React from 'react';
-import { GitBranch, Calendar, CheckSquare, Bot, Truck, Settings, Database, Terminal } from 'lucide-react';
+import { GitBranch, Calendar, CheckSquare, Bot, Truck, Settings, Database, Terminal, History } from 'lucide-react';
 import type { HealthCheckResult } from '../api/client';
 import type { MissionDetail } from '../types';
 
@@ -17,6 +17,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ health, activeMission, activeT
     { id: 'logistics', label: 'Logistics', icon: Truck },
     { id: 'ai-copilot', label: 'AI command', icon: Bot, badge: 'Ready' },
     { id: 'settings', label: 'Settings', icon: Settings },
+    { id: 'audit', label: 'Audit log', icon: History },
   ];
   return (
     <aside className="ops-sidebar">

@@ -33,7 +33,7 @@ def _extract_json(text: str) -> dict[str, Any]:
     return value
 
 
-def _prompt(goal: str, brief: str | None, tasks: list[dict[str, Any]], edges: list[dict[str, Any]], command: str) -> str:
+def _prompt(goal: str, brief: str | None, tasks: list[dict[str, Any]], edges: list[dict[str, Any]], command: str, attachments: list[dict[str, Any]] | None = None) -> str:
     task_context = [
         {
             "id": task["id"],
@@ -47,6 +47,7 @@ def _prompt(goal: str, brief: str | None, tasks: list[dict[str, Any]], edges: li
         for task in tasks
     ]
     edge_context = [{"id": edge["id"], "source": edge["source"], "target": edge["target"]} for edge in edges]
+    attachment_context = "\n\nATTACHED DOCUMENT CONTEXT:\n" + json.dumps(attachments or [], ensure_ascii=False) if attachments else ""
     return f"""You are the workflow operations engine for MissionControl AI.
 Interpret the user's command as a targeted edit to the existing event execution graph.
 Never regenerate or delete unrelated work. Do not invent factual event data.
@@ -65,6 +66,7 @@ CURRENT EDGES (source -> target means target depends on source):
 
 USER COMMAND:
 {command}
+{attachment_context}
 
 Return ONLY valid JSON in this exact shape:
 {{
@@ -91,7 +93,7 @@ Rules:
 """
 
 
-def propose_operations(*, goal: str, brief: str | None, tasks: list[dict[str, Any]], edges: list[dict[str, Any]], command: str) -> dict[str, Any]:
+def propose_operations(*, goal: str, brief: str | None, tasks: list[dict[str, Any]], edges: list[dict[str, Any]], command: str, attachments: list[dict[str, Any]] | None = None, image_parts: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     if not settings.GEMINI_API_KEY:
         raise AIPlannerError("GEMINI_API_KEY is not configured for the backend.")
 
@@ -100,7 +102,7 @@ def propose_operations(*, goal: str, brief: str | None, tasks: list[dict[str, An
         f"{settings.GEMINI_MODEL}:generateContent?key={settings.GEMINI_API_KEY}"
     )
     body = {
-        "contents": [{"parts": [{"text": _prompt(goal, brief, tasks, edges, command)}]}],
+        "contents": [{"parts": [{"text": _prompt(goal, brief, tasks, edges, command, attachments)}, *(image_parts or [])]}],
         "generationConfig": {"temperature": 0.15, "maxOutputTokens": 4096},
     }
     request = urlrequest.Request(url, data=json.dumps(body).encode("utf-8"), headers={"Content-Type": "application/json"}, method="POST")

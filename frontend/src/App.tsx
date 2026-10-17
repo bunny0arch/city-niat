@@ -245,14 +245,27 @@ export function App() {
       if (!activeMissionId || !connection.source || !connection.target) return;
       try {
         setErrorBanner(null);
-        await api.createEdge(activeMissionId, connection.source, connection.target);
+        const createdEdge = await api.createEdge(activeMissionId, connection.source, connection.target);
+        // Update React Flow immediately after the API confirms the edge. The
+        // mission reload below remains authoritative for persistence, but the
+        // operator should never need to refresh to see a successful connection.
+        setEdges((currentEdges) => {
+          if (currentEdges.some((edge) => edge.id === createdEdge.id)) return currentEdges;
+          return [...currentEdges, {
+            id: createdEdge.id,
+            source: createdEdge.source,
+            target: createdEdge.target,
+            animated: true,
+            style: { stroke: '#475569', strokeWidth: 1.5 },
+          }];
+        });
         void api.recordAudit('workflow', 'Connected dependency', { mission_id: activeMissionId, source: connection.source, target: connection.target });
         await loadActiveMission(activeMissionId);
       } catch (err) {
         setErrorBanner(err instanceof Error ? err.message : 'Failed to connect tasks.');
       }
     },
-    [activeMissionId, loadActiveMission]
+    [activeMissionId, loadActiveMission, setEdges]
   );
 
   // Select an edge on click (no confirm dialog)

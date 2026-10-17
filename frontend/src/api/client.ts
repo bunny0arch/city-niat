@@ -8,6 +8,9 @@ import type {
   UpdateTaskPayload,
   DependencyEdge,
   Position,
+  AIPreviewResponse,
+  AIApplyResponse,
+  AIOperation,
 } from '../types';
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -136,6 +139,20 @@ export class ApiClient {
   async resetSampleMission(): Promise<{ status: string; mission_id: string }> {
     return this.request<{ status: string; mission_id: string }>('/api/missions/reset-sample', {
       method: 'POST',
+    });
+  }
+
+  async previewAICommand(missionId: string, command: string): Promise<AIPreviewResponse> {
+    return this.request<AIPreviewResponse>(`/api/missions/${missionId}/ai/preview`, {
+      method: 'POST',
+      body: JSON.stringify({ command }),
+    });
+  }
+
+  async applyAIOperations(missionId: string, operations: AIOperation[]): Promise<AIApplyResponse> {
+    return this.request<AIApplyResponse>(`/api/missions/${missionId}/ai/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ operations }),
     });
   }
 

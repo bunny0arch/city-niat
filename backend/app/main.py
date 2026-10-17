@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.api.health import router as health_router
 from app.api.missions import router as missions_router
+from app.api.ai import router as ai_router
 from app.db.database import init_db
 
 
@@ -37,6 +38,7 @@ app.add_middleware(
 # Mount API routes
 app.include_router(health_router, prefix="/api")
 app.include_router(missions_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 
 
 @app.get("/", tags=["Root"])

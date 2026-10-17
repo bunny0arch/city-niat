@@ -14,6 +14,8 @@ import { StatusBar } from './components/StatusBar';
 import { CreateMissionModal } from './components/CreateMissionModal';
 import { TaskModal } from './components/TaskModal';
 import { LoginPage } from './components/LoginPage';
+import { AICommandPanel } from './components/AICommandPanel';
+import { CursorFollower } from './components/CursorFollower';
 import { api, type HealthCheckResult } from './api/client';
 import type {
   MissionSummary,
@@ -24,12 +26,14 @@ import type {
   UpdateTaskPayload,
   TaskStatus,
   FlowNodeData,
+  AIPreviewResponse,
+  AIApplyResponse,
 } from './types';
 import { Cpu, AlertCircle } from 'lucide-react';
 import './App.css';
 
 export function App() {
-  const [isLoginView, setIsLoginView] = useState(() => window.location.pathname === '/login');
+  const [isLoginView, setIsLoginView] = useState(() => window.location.pathname === '/login' || !window.sessionStorage.getItem('missioncontrol.session'));
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [checkingHealth, setCheckingHealth] = useState<boolean>(true);
 
@@ -47,6 +51,11 @@ export function App() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [taskToEdit, setTaskToEdit] = useState<TaskNode | null>(null);
   const [activeTab, setActiveTab] = useState<string>('canvas');
+  const [isAICommandOpen, setIsAICommandOpen] = useState(true);
+  const [aiPreview, setAIPreview] = useState<AIPreviewResponse | null>(null);
+  const [aiApplyResult, setAIApplyResult] = useState<AIApplyResponse | null>(null);
+  const [aiLoading, setAILoading] = useState(false);
+  const [aiError, setAIError] = useState<string | null>(null);
 
   // React Flow state
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -337,6 +346,38 @@ export function App() {
     }
   }, [loadMissions]);
 
+  const handleAIPreview = useCallback(async (command: string) => {
+    if (!activeMissionId) return;
+    setAILoading(true);
+    setAIError(null);
+    setAIApplyResult(null);
+    try {
+      const preview = await api.previewAICommand(activeMissionId, command);
+      setAIPreview(preview);
+    } catch (err) {
+      setAIError(err instanceof Error ? err.message : 'Gemini could not prepare a safe graph change.');
+    } finally {
+      setAILoading(false);
+    }
+  }, [activeMissionId]);
+
+  const handleAIApply = useCallback(async () => {
+    if (!activeMissionId || !aiPreview) return;
+    setAILoading(true);
+    setAIError(null);
+    try {
+      const result = await api.applyAIOperations(activeMissionId, aiPreview.operations);
+      setAIApplyResult(result);
+      setAIPreview(null);
+      await loadActiveMission(activeMissionId);
+      await loadMissions();
+    } catch (err) {
+      setAIError(err instanceof Error ? err.message : 'The proposed changes were not saved.');
+    } finally {
+      setAILoading(false);
+    }
+  }, [activeMissionId, aiPreview, loadActiveMission, loadMissions]);
+
   const openAddTaskModal = useCallback(() => {
     setTaskToEdit(null);
     setIsTaskModalOpen(true);
@@ -348,22 +389,25 @@ export function App() {
   }, []);
 
   const openLogin = useCallback(() => {
+    window.sessionStorage.removeItem('missioncontrol.session');
     window.history.pushState({}, '', '/login');
     setIsLoginView(true);
   }, []);
 
-  const continueToWorkspace = useCallback((email: string) => {
-    window.sessionStorage.setItem('missioncontrol.workspaceEmail', email);
+  const continueToWorkspace = useCallback((email: string, displayName: string) => {
+    window.sessionStorage.setItem('missioncontrol.session', JSON.stringify({ email, displayName }));
     window.history.pushState({}, '', '/');
     setIsLoginView(false);
   }, []);
 
   if (isLoginView) {
-    return <LoginPage onContinue={continueToWorkspace} />;
+    return <><CursorFollower /><LoginPage onContinue={continueToWorkspace} /></>;
   }
 
   return (
     <div className="ops-app-shell">
+      <CursorFollower />
+
       <Header
         health={health}
         checkingHealth={checkingHealth}
@@ -426,6 +470,18 @@ export function App() {
                     selectedEdgeId={selectedEdgeId}
                   />
                 )}
+                <AICommandPanel
+                  missionId={activeMissionId}
+                  preview={aiPreview}
+                  isOpen={isAICommandOpen}
+                  isLoading={aiLoading}
+                  error={aiError}
+                  onToggle={() => setIsAICommandOpen((value) => !value)}
+                  onPreview={handleAIPreview}
+                  onApply={handleAIApply}
+                  onCancel={() => { setAIPreview(null); setAIError(null); }}
+                  lastApplied={aiApplyResult}
+                />
               </div>
               <InspectorPanel
                 selectedTask={selectedTask}

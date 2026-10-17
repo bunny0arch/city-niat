@@ -61,6 +61,32 @@ export interface MissionDetail {
   updated_at: string;
 }
 
+export type AIOperationType = 'add_node' | 'update_node' | 'remove_node' | 'add_edge' | 'remove_edge' | 'move_node';
+
+export interface AIOperation {
+  op: AIOperationType;
+  task_id?: string;
+  source?: string;
+  target?: string;
+  edge_id?: string;
+  position?: Position;
+  task?: Partial<CreateTaskPayload> & { id?: string };
+  changes?: Partial<UpdateTaskPayload>;
+}
+
+export interface AIPreviewResponse {
+  model: string;
+  rationale: string;
+  operations: AIOperation[];
+  affected_task_ids: string[];
+  affected_edge_ids: string[];
+}
+
+export interface AIApplyResponse extends AIPreviewResponse {
+  applied: boolean;
+  mission_id: string;
+}
+
 export interface CreateMissionPayload {
   goal: string;
   brief?: string;

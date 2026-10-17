@@ -1,0 +1,72 @@
+:root {
+  --bg-app: #f5f4ef;
+  --bg-header: #fbfaf7;
+  --bg-sidebar: #f0efe9;
+  --bg-panel: #fbfaf7;
+  --bg-card: #ffffff;
+  --bg-hover: #ecebe5;
+  --bg-active: #e4e9f2;
+  --border-crisp: #d6d4cd;
+  --border-subtle: #e7e5de;
+  --border-focus: #28559b;
+  --text-main: #16181d;
+  --text-dim: #5f6269;
+  --text-muted: #888a8f;
+  --accent-blue: #28559b;
+  --accent-blue-soft: #e9eff9;
+  --accent-emerald: #16856b;
+  --accent-emerald-bg: #e7f4ef;
+  --accent-sky: #3474ba;
+  --accent-amber: #a86c17;
+  --accent-amber-bg: #fff4df;
+  --accent-rose: #b94a4a;
+  --shadow-soft: 0 10px 30px rgba(22, 24, 29, 0.06);
+  --font-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+  --font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { width: 100%; height: 100%; }
+html { background: var(--bg-app); }
+body {
+  background: var(--bg-app);
+  color: var(--text-main);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+}
+button, input, textarea, select { font: inherit; }
+button { border: 0; background: none; color: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+input, textarea, select { color: var(--text-main); }
+code, .font-mono { font-family: var(--font-mono); }
+.text-emerald { color: var(--accent-emerald); }
+.text-sky { color: var(--accent-sky); }
+.text-amber { color: var(--accent-amber); }
+.text-zinc { color: var(--text-muted); }
+.text-accent { color: var(--accent-blue); }
+.flex-row { display: flex; flex-direction: row; }
+.items-center { align-items: center; }
+.justify-between { justify-content: space-between; }
+.gap-2 { gap: 8px; }
+.flex-1 { flex: 1; }
+.w-full { width: 100%; }
+.mt-3 { margin-top: 12px; }
+.mb-1 { margin-bottom: 4px; }
+.mb-2 { margin-bottom: 8px; }
+.cursor-pointer { cursor: pointer; }
+.font-semibold { font-weight: 600; }
+.text-xs { font-size: 11px; }
+.italic { font-style: italic; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+}

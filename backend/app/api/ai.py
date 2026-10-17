@@ -142,6 +142,7 @@ def _validate_and_apply(mission_id: str, operations: list[AIOperation]) -> list[
         edge_rows = conn.execute("SELECT id, source_task_id, target_task_id FROM dependencies WHERE mission_id = ?", (mission_id,)).fetchall()
         edges: list[tuple[str, str]] = [(row["source_task_id"], row["target_task_id"]) for row in edge_rows]
         edge_ids = {row["id"] for row in edge_rows}
+        occupied_positions = {(round(float(row["position_x"]) / 40), round(float(row["position_y"]) / 40)) for row in conn.execute("SELECT position_x, position_y FROM tasks WHERE mission_id = ?", (mission_id,)).fetchall()}
         normalized: list[dict[str, Any]] = []
 
         for raw in operations:
@@ -160,7 +161,16 @@ def _validate_and_apply(mission_id: str, operations: list[AIOperation]) -> list[
                 category = task.get("category", "operations")
                 if status not in ALLOWED_STATUS or priority not in ALLOWED_PRIORITY or category not in ALLOWED_CATEGORY:
                     raise HTTPException(status_code=422, detail="AI proposed an invalid task status, priority, or category.")
-                position = task.get("position") or {"x": 160 + len(task_ids) * 40, "y": 140 + len(task_ids) * 24}
+                # Never trust model-provided coordinates to be collision-free.
+                # Allocate a stable grid slot beside the existing graph.
+                slot = len(occupied_positions)
+                while True:
+                    candidate = (slot % 4, slot // 4)
+                    if candidate not in occupied_positions:
+                        occupied_positions.add(candidate)
+                        position = {"x": 100 + candidate[0] * 330, "y": 100 + candidate[1] * 220}
+                        break
+                    slot += 1
                 task_id = task_id
                 conn.execute("INSERT INTO tasks (id, mission_id, title, description, status, priority, category, owner, eta, position_x, position_y, source_refs, subtasks_completed, subtasks_total, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (task_id, mission_id, title, str(task.get("description", "")), status, priority, category, str(task.get("owner", "Unassigned")), str(task.get("eta", "TBD")), float(position.get("x", 0)), float(position.get("y", 0)), json.dumps(task.get("source_refs", [])), int(task.get("subtasks_completed", 0)), int(task.get("subtasks_total", 0)), now, now))
                 task_ids.add(task_id)

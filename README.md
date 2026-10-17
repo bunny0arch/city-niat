@@ -138,3 +138,7 @@ The browser demo seeds two local accounts on the sign-in screen. Selecting eithe
 | Maya Chen | `maya@cityniat.demo` | `MissionFlow2026!` |
 
 New accounts require a full name. The submitted name is stored with the local account and displayed in the dashboard profile menu. Opening the profile no longer logs out; sign-out is an explicit action inside the profile menu.
+
+## AI graph commands
+
+Interactive graph commands use structured JSON output through `GEMINI_FAST_MODEL` (`gemini-3.5-flash-lite` by default). New tasks are normalized from natural language, explicit priority and ownership are preserved, and the backend assigns each created task a free grid position so nodes do not overlap. The slower Gemma model is not retried for interactive edits, so a provider failure returns promptly instead of creating a long wait.

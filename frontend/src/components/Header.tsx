@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Layers, RefreshCw, Server, Calendar, CheckCircle, AlertCircle, Clock, Plus, ChevronDown, Search, UserRound } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Layers, RefreshCw, Server, Calendar, CheckCircle, AlertCircle, Clock, Plus, ChevronDown, Search, UserRound, LogOut } from 'lucide-react';
 import type { HealthCheckResult } from '../api/client';
 import type { MissionSummary } from '../types';
 
@@ -11,16 +11,35 @@ interface HeaderProps {
   activeMissionId: string | null;
   onSelectMission: (missionId: string) => void;
   onOpenCreateMission: () => void;
-  onOpenLogin: () => void;
+  onLogout: () => void;
+  displayName: string;
+  email: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ health, checkingHealth, onRefreshHealth, missions, activeMissionId, onSelectMission, onOpenCreateMission, onOpenLogin }) => {
+function initialsFor(name: string) {
+  const initials = name.trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]).join('');
+  return (initials || name.slice(0, 2) || 'U').toUpperCase();
+}
+
+export const Header: React.FC<HeaderProps> = ({ health, checkingHealth, onRefreshHealth, missions, activeMissionId, onSelectMission, onOpenCreateMission, onLogout, displayName, email }) => {
   const isHealthy = health?.data?.status === 'ok';
   const [timeStr, setTimeStr] = useState(() => new Date().toISOString().substring(11, 16));
+  const [profileOpen, setProfileOpen] = useState(false);
+  const profileRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     const timer = setInterval(() => setTimeStr(new Date().toISOString().substring(11, 16)), 30000);
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(event.target as Node)) setProfileOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [profileOpen]);
 
   return (
     <header className="ops-header">
@@ -47,7 +66,19 @@ export const Header: React.FC<HeaderProps> = ({ health, checkingHealth, onRefres
           <button type="button" className="ops-btn-icon" onClick={onRefreshHealth} disabled={checkingHealth} title="Recheck backend health"><RefreshCw size={13} className={checkingHealth ? 'ops-spin' : ''} /></button>
         </div>
         <div className="ops-runtime-meta"><Clock size={12} /><span>UTC {timeStr}</span></div>
-        <button type="button" className="ops-account-button" onClick={onOpenLogin} title="Open account access"><span className="ops-avatar">JD</span><span className="ops-account-name">Jamie Park</span><UserRound size={13} className="ops-dim-icon" /></button>
+        <div className="ops-profile-wrap" ref={profileRef}>
+          <button type="button" className="ops-account-button" onClick={() => setProfileOpen((value) => !value)} aria-expanded={profileOpen} aria-haspopup="menu" title="Open profile menu">
+            <span className="ops-avatar">{initialsFor(displayName)}</span><span className="ops-account-name">{displayName}</span><UserRound size={13} className="ops-dim-icon" />
+          </button>
+          {profileOpen && (
+            <div className="ops-profile-menu" role="menu">
+              <div className="ops-profile-heading"><span className="ops-avatar ops-avatar-large">{initialsFor(displayName)}</span><div><strong>{displayName}</strong><span>{email}</span></div></div>
+              <div className="ops-profile-divider" />
+              <div className="ops-profile-status"><span className="ops-status-dot dot-emerald" /> Signed in to this workspace</div>
+              <button type="button" className="ops-profile-logout" role="menuitem" onClick={() => { setProfileOpen(false); onLogout(); }}><LogOut size={14} /> Sign out</button>
+            </div>
+          )}
+        </div>
       </div>
     </header>
   );

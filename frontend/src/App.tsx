@@ -34,6 +34,14 @@ import './App.css';
 
 export function App() {
   const [isLoginView, setIsLoginView] = useState(() => window.location.pathname === '/login' || !window.sessionStorage.getItem('missioncontrol.session'));
+  const [sessionUser, setSessionUser] = useState<{ email: string; displayName: string }>(() => {
+    try {
+      const session = JSON.parse(window.sessionStorage.getItem('missioncontrol.session') || '{}') as { email?: string; displayName?: string };
+      return { email: session.email || '', displayName: session.displayName || 'Workspace operator' };
+    } catch {
+      return { email: '', displayName: 'Workspace operator' };
+    }
+  });
   const [health, setHealth] = useState<HealthCheckResult | null>(null);
   const [checkingHealth, setCheckingHealth] = useState<boolean>(true);
 
@@ -405,15 +413,27 @@ export function App() {
     setIsTaskModalOpen(true);
   }, []);
 
-  const openLogin = useCallback(() => {
+  const logout = useCallback(() => {
     void api.recordAudit('auth', 'Logged out');
     window.sessionStorage.removeItem('missioncontrol.session');
     window.history.pushState({}, '', '/login');
+    setMissions([]);
+    setActiveMissionId(null);
+    setActiveMission(null);
+    setNodes([]);
+    setEdges([]);
+    setSessionUser({ email: '', displayName: 'Workspace operator' });
     setIsLoginView(true);
-  }, []);
+  }, [setEdges, setNodes]);
 
-  const continueToWorkspace = useCallback((email: string, displayName: string) => {
+  const continueToWorkspace = useCallback(async (email: string, displayName: string) => {
     window.sessionStorage.setItem('missioncontrol.session', JSON.stringify({ email, displayName }));
+    setSessionUser({ email, displayName });
+    try {
+      await api.resetSampleMission();
+    } catch (err) {
+      console.warn('Sample mission could not be initialized:', err);
+    }
     void api.recordAudit('auth', 'Logged in', { display_name: displayName });
     window.history.pushState({}, '', '/');
     setIsLoginView(false);
@@ -435,7 +455,9 @@ export function App() {
         activeMissionId={activeMissionId}
         onSelectMission={setActiveMissionId}
         onOpenCreateMission={() => setIsCreateMissionOpen(true)}
-        onOpenLogin={openLogin}
+        onLogout={logout}
+        displayName={sessionUser.displayName}
+        email={sessionUser.email}
       />
 
       {errorBanner && (

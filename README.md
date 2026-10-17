@@ -127,3 +127,14 @@ npm run dev
 - ✅ **Frontend Production Build**: `npm run build` succeeds with optimized bundle generation (built in ~837ms).
 - ✅ **Database & Persistence**: SQLite configured with foreign keys and WAL mode; zero mock data masquerading as persistence.
 - ✅ **Security**: Zero real API keys present; `.gitignore` rules active for `.env`, virtualenvs, SQLite DBs, and build artifacts.
+
+## Demo access
+
+The browser demo seeds two local accounts on the sign-in screen. Selecting either account fills the form and opens the sample `Global TechSummit 2026` workflow with its dependency-aware task graph.
+
+| Name | Email | Password |
+| --- | --- | --- |
+| Alex Morgan | `alex@cityniat.demo` | `CityNiat2026!` |
+| Maya Chen | `maya@cityniat.demo` | `MissionFlow2026!` |
+
+New accounts require a full name. The submitted name is stored with the local account and displayed in the dashboard profile menu. Opening the profile no longer logs out; sign-out is an explicit action inside the profile menu.
